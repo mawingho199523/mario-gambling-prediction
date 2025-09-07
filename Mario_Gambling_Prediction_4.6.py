@@ -30,6 +30,7 @@ def fetch_titan007_matches(limit=50):
                 })
     df = pd.DataFrame(data)
     st.write("抓取前5筆比賽資料", df.head())
+    st.write("欄位名稱：", df.columns.tolist())
     return df
 
 # ===============================
@@ -50,6 +51,13 @@ st.title("⚽ Mario Gambling Prediction 4.6 ⚽")
 # 取得比賽資料
 df_matches = fetch_titan007_matches(limit=50)
 
+# ===============================
+# 4. 檢查是否有聯賽欄位
+# ===============================
+if '聯賽' not in df_matches.columns:
+    st.error("抓不到聯賽資料，請檢查爬蟲或網站結構")
+    st.stop()
+
 # 側邊欄選擇
 st.sidebar.header("選擇聯賽 & 比賽")
 leagues = df_matches['聯賽'].unique().tolist()
@@ -69,13 +77,13 @@ home_corner_avg = st.slider("主隊平均角球", 0.0, 10.0, 4.0, 0.1)
 away_corner_avg = st.slider("客隊平均角球", 0.0, 10.0, 4.0, 0.1)
 
 # ===============================
-# 4. 計算概率矩陣
+# 5. 計算概率矩陣
 # ===============================
 score_matrix = predict_matrix(home_avg, away_avg, max_val=5)
 corner_matrix = predict_matrix(home_corner_avg, away_corner_avg, max_val=10)
 
 # ===============================
-# 5. 顯示 DataFrame
+# 6. 顯示 DataFrame
 # ===============================
 st.write("📊 預測比分機率表")
 st.dataframe(pd.DataFrame(score_matrix, index=range(6), columns=range(6)))
@@ -84,7 +92,7 @@ st.write("📊 預測角球機率表")
 st.dataframe(pd.DataFrame(corner_matrix, index=range(11), columns=range(11)))
 
 # ===============================
-# 6. 計算大小球 & 角球建議
+# 7. 計算大小球 & 角球建議
 # ===============================
 under_25_prob = score_matrix[:3,:3].sum()
 over_25_prob = 1 - under_25_prob
@@ -98,7 +106,7 @@ col3.metric("主隊平均進球", f"{home_avg:.1f}")
 col4.metric("客隊平均進球", f"{away_avg:.1f}")
 
 # ===============================
-# 7. 視覺化比分概率 (彩色條形圖)
+# 8. 視覺化比分概率
 # ===============================
 st.subheader("比分概率可視化 📈")
 score_df = pd.DataFrame(score_matrix, index=[f"主{i}" for i in range(6)], columns=[f"客{j}" for j in range(6)])
@@ -114,7 +122,7 @@ chart_score = alt.Chart(score_df_long).mark_rect().encode(
 st.altair_chart(chart_score, use_container_width=True)
 
 # ===============================
-# 8. 視覺化角球概率 (彩色條形圖)
+# 9. 視覺化角球概率
 # ===============================
 st.subheader("角球概率可視化 📊")
 corner_df = pd.DataFrame(corner_matrix, index=[f"主{i}" for i in range(11)], columns=[f"客{j}" for j in range(11)])
