@@ -102,8 +102,8 @@ col4.metric("客隊平均進球", f"{away_avg:.1f}")
 # ===============================
 st.subheader("比分概率可視化 📈")
 score_df = pd.DataFrame(score_matrix, index=[f"主{i}" for i in range(6)], columns=[f"客{j}" for j in range(6)])
-score_df_long = score_df.reset_index().melt(id_vars="index", var_name="客隊進球", value_name="機率")
-score_df_long.rename(columns={"index": "主隊進球"}, inplace=True)
+score_df_long = score_df.reset_index().melt(id_vars="index")
+score_df_long.columns = ["主隊進球", "客隊進球", "機率"]
 
 chart_score = alt.Chart(score_df_long).mark_rect().encode(
     x="客隊進球:O",
@@ -118,8 +118,8 @@ st.altair_chart(chart_score, use_container_width=True)
 # ===============================
 st.subheader("角球概率可視化 📊")
 corner_df = pd.DataFrame(corner_matrix, index=[f"主{i}" for i in range(11)], columns=[f"客{j}" for j in range(11)])
-corner_df_long = corner_df.reset_index().melt(id_vars="index", var_name="客隊角球", value_name="機率")
-corner_df_long.rename(columns={"index": "主隊角球"}, inplace=True)
+corner_df_long = corner_df.reset_index().melt(id_vars="index")
+corner_df_long.columns = ["主隊角球", "客隊角球", "機率"]
 
 chart_corner = alt.Chart(corner_df_long).mark_rect().encode(
     x="客隊角球:O",
