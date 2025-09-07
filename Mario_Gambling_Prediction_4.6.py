@@ -1,47 +1,30 @@
 import streamlit as st
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 import math
 import numpy as np
 import altair as alt
 
 # ===============================
-# 1. Titan007 抓取比賽資料
+# 1. The Odds API 設定
 # ===============================
-def fetch_titan007_matches(limit=50):
-    url = "https://www.titan007.com/football/matchlist.htm"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    resp = requests.get(url, headers=headers)
-    
-    if resp.status_code != 200:
-        st.error(f"無法抓取 Titan007 網頁，HTTP 狀態碼: {resp.status_code}")
-        return pd.DataFrame()
-    
-    soup = BeautifulSoup(resp.text, "html.parser")
-    data = []
+API_KEY = "d00b3f188b2a475a2feaf90da0be67a5"  # 你的 API Key
+LEAGUES = ["EPL", "LaLiga", "SerieA", "Bundesliga"]  # 可擴充
 
-    # 依照最新 Titan007 網頁結構，請修改 id/class
-    table = soup.find("table", id="matchlist")
-    if not table:
-        st.error("找不到比賽表格，Titan007 網頁結構可能已改版")
+def fetch_matches(league):
+    url = f"https://api.the-odds-api.com/v4/sports/soccer_{league}/odds/?apiKey={API_KEY}&regions=eu&markets=h2h,totals&oddsFormat=decimal"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        st.error(f"The Odds API 比賽請求失敗: {resp.status_code}")
         return pd.DataFrame()
     
-    rows = table.find_all("tr")[1:]  # 跳過表頭
-    for r in rows[:limit]:
-        cols = r.find_all("td")
-        if len(cols) >= 4:
-            data.append({
-                "日期": cols[0].get_text(strip=True),
-                "聯賽": cols[1].get_text(strip=True),
-                "主隊": cols[2].get_text(strip=True),
-                "客隊": cols[3].get_text(strip=True)
-            })
-    
-    df = pd.DataFrame(data)
-    if df.empty:
-        st.warning("抓到的比賽資料為空，請檢查 Titan007 網頁結構")
-    return df
+    matches = []
+    for match in resp.json():
+        home = match.get("home_team")
+        away = match.get("away_team")
+        date = match.get("commence_time", "")
+        matches.append({"日期": date, "主隊": home, "客隊": away})
+    return pd.DataFrame(matches)
 
 # ===============================
 # 2. Poisson 模型
@@ -55,23 +38,19 @@ def predict_matrix(home_avg, away_avg, max_val=5):
 # ===============================
 # 3. Streamlit UI
 # ===============================
-st.set_page_config(page_title="Mario Gambling Prediction 4.7", layout="wide")
-st.title("⚽ Mario Gambling Prediction 4.7 ⚽")
+st.set_page_config(page_title="Mario Gambling Prediction 5.0", layout="wide")
+st.title("⚽ Mario Gambling Prediction 5.0 ⚽")
 
-# 抓取比賽資料
-df_matches = fetch_titan007_matches(limit=50)
+# 側邊欄選擇聯賽
+st.sidebar.header("選擇聯賽 & 比賽")
+selected_league = st.sidebar.selectbox("選擇聯賽", LEAGUES)
 
-# 檢查聯賽欄位
-if df_matches.empty or '聯賽' not in df_matches.columns:
+df_matches = fetch_matches(selected_league)
+
+if df_matches.empty:
     st.stop()
 
-# 側邊欄選擇聯賽與比賽
-st.sidebar.header("選擇聯賽 & 比賽")
-leagues = df_matches['聯賽'].unique().tolist()
-selected_league = st.sidebar.selectbox("選擇聯賽", leagues)
-
-matches_in_league = df_matches[df_matches['聯賽'] == selected_league]
-match_options = matches_in_league.apply(lambda x: f"{x['主隊']} vs {x['客隊']} ({x['日期']})", axis=1)
+match_options = df_matches.apply(lambda x: f"{x['主隊']} vs {x['客隊']} ({x['日期']})", axis=1)
 selected_match = st.sidebar.selectbox("選擇比賽", match_options)
 
 # 模擬平均進球與角球
