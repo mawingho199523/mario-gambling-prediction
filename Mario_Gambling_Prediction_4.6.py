@@ -8,11 +8,20 @@ import altair as alt
 # ===============================
 # 1. The Odds API 設定
 # ===============================
-API_KEY = "d00b3f188b2a475a2feaf90da0be67a5"  # 你的 API Key
-LEAGUES = ["EPL", "LaLiga", "SerieA", "Bundesliga"]  # 可擴充
+API_KEY = "d00b3f188b2a475a2feaf90da0be67a5"
 
-def fetch_matches(league):
-    url = f"https://api.the-odds-api.com/v4/sports/soccer_{league}/odds/?apiKey={API_KEY}&regions=eu&markets=h2h,totals&oddsFormat=decimal"
+# 官方 sport_key 對應聯賽
+LEAGUE_KEYS = {
+    "英超": "soccer_epl",
+    "西甲": "soccer_spain_la_liga",
+    "意甲": "soccer_italy_serie_a",
+    "德甲": "soccer_germany_bundesliga",
+    "法甲": "soccer_france_ligue_one",
+    "葡超": "soccer_portugal_liga"
+}
+
+def fetch_matches(sport_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/?apiKey={API_KEY}&regions=eu&markets=h2h,totals&oddsFormat=decimal"
     resp = requests.get(url)
     if resp.status_code != 200:
         st.error(f"The Odds API 比賽請求失敗: {resp.status_code}")
@@ -38,15 +47,16 @@ def predict_matrix(home_avg, away_avg, max_val=5):
 # ===============================
 # 3. Streamlit UI
 # ===============================
-st.set_page_config(page_title="Mario Gambling Prediction 5.0", layout="wide")
-st.title("⚽ Mario Gambling Prediction 5.0 ⚽")
+st.set_page_config(page_title="Mario Gambling Prediction 5.1", layout="wide")
+st.title("⚽ Mario Gambling Prediction 5.1 ⚽")
 
 # 側邊欄選擇聯賽
 st.sidebar.header("選擇聯賽 & 比賽")
-selected_league = st.sidebar.selectbox("選擇聯賽", LEAGUES)
+selected_league_name = st.sidebar.selectbox("選擇聯賽", list(LEAGUE_KEYS.keys()))
+sport_key = LEAGUE_KEYS[selected_league_name]
 
-df_matches = fetch_matches(selected_league)
-
+# 抓比賽
+df_matches = fetch_matches(sport_key)
 if df_matches.empty:
     st.stop()
 
