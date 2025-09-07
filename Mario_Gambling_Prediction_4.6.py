@@ -12,9 +12,11 @@ def get_leagues():
     leagues = {}
     if r.status_code == 200:
         for item in r.json().get("response", []):
-            league_name = item["league"]["name"]
-            league_country = item["league"]["country"]
-            leagues[f"{league_name} ({league_country})"] = item["league"]["id"]
+            league_info = item.get("league", {})
+            league_name = league_info.get("name", "Unknown League")
+            league_country = league_info.get("country", "Unknown Country")
+            league_id = league_info.get("id", 0)
+            leagues[f"{league_name} ({league_country})"] = league_id
     return leagues
 
 def sort_leagues_by_popularity(leagues_dict):
@@ -32,13 +34,15 @@ def get_fixtures(league_id):
     fixtures = []
     if r.status_code == 200:
         for item in r.json().get("response", []):
+            fixture_info = item.get("fixture", {})
+            teams = item.get("teams", {})
             fixtures.append({
-                "id": item["fixture"]["id"],
-                "home": item["teams"]["home"]["name"],
-                "away": item["teams"]["away"]["name"],
-                "home_id": item["teams"]["home"]["id"],
-                "away_id": item["teams"]["away"]["id"],
-                "date": item["fixture"]["date"]
+                "id": fixture_info.get("id", 0),
+                "home": teams.get("home", {}).get("name", "Unknown Home"),
+                "away": teams.get("away", {}).get("name", "Unknown Away"),
+                "home_id": teams.get("home", {}).get("id", 0),
+                "away_id": teams.get("away", {}).get("id", 0),
+                "date": fixture_info.get("date", "Unknown Date")
             })
     return fixtures
 
@@ -50,23 +54,27 @@ def get_team_stats(team_id):
     corners = []
     if r.status_code == 200:
         for item in r.json().get("response", []):
-            home_id = item["teams"]["home"]["id"]
-            away_id = item["teams"]["away"]["id"]
-            home_goals = item["goals"]["home"]
-            away_goals = item["goals"]["away"]
+            teams = item.get("teams", {})
+            home_id = teams.get("home", {}).get("id", 0)
+            away_id = teams.get("away", {}).get("id", 0)
+            goals_home = item.get("goals", {}).get("home")
+            goals_away = item.get("goals", {}).get("away")
             stats = item.get("statistics", [])
+
             # Goals
-            if home_goals is not None and home_id == team_id:
-                goals.append(home_goals)
-            elif away_goals is not None and away_id == team_id:
-                goals.append(away_goals)
+            if goals_home is not None and home_id == team_id:
+                goals.append(goals_home)
+            elif goals_away is not None and away_id == team_id:
+                goals.append(goals_away)
+
             # Corners
-            corner_home = next((s["value"] for s in stats if s["type"]=="Corner" and s["team"]["id"]==home_id), None)
-            corner_away = next((s["value"] for s in stats if s["type"]=="Corner" and s["team"]["id"]==away_id), None)
+            corner_home = next((s.get("value") for s in stats if s.get("type")=="Corner" and s.get("team", {}).get("id")==home_id), None)
+            corner_away = next((s.get("value") for s in stats if s.get("type")=="Corner" and s.get("team", {}).get("id")==away_id), None)
             if home_id == team_id and corner_home is not None:
                 corners.append(corner_home)
             elif away_id == team_id and corner_away is not None:
                 corners.append(corner_away)
+
     avg_goal = sum(goals)/len(goals) if goals else 1.5
     avg_corner = sum(corners)/len(corners) if corners else 4.5
     return {"avg_goal": avg_goal, "avg_corner": avg_corner}
