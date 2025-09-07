@@ -1,11 +1,9 @@
 import streamlit as st
 import requests
 import math
-from datetime import datetime
 
-# ===== API Keys =====
+# ===== API Key =====
 API_FOOTBALL_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
-THE_ODDS_KEY = "d00b3f188b2a475a2feaf90da0be67a5"
 
 # ===== Helper functions =====
 def get_leagues():
@@ -43,9 +41,9 @@ def get_team_id(name, league_id):
                 return item["team"]["id"]
     return None
 
-def get_last_matches(team_id):
+def get_last_matches(team_id, last=5):
     headers = {"x-apisports-key": API_FOOTBALL_KEY}
-    url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&last=5"
+    url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&last={last}"
     r = requests.get(url, headers=headers)
     return r.json().get("response", []) if r.status_code==200 else []
 
@@ -77,50 +75,16 @@ def get_average_corners(team_id):
     avg_corners = total_corners/count if count>0 else 4
     return avg_corners
 
-def predict_corners_auto(home_id, away_id, odds_total=9.5):
+def predict_corners(home_id, away_id):
     home_avg = get_average_corners(home_id)
     away_avg = get_average_corners(away_id)
     total_avg = home_avg + away_avg
-    over_indicator = "🔥" if total_avg > odds_total else "❌"
+    over_indicator = "🔥" if total_avg > 9.5 else "❌"
     return home_avg, away_avg, total_avg, over_indicator
-
-def get_odds(fixture, league_id):
-    """
-    The Odds API + fallback API-Football odds
-    """
-    # --- Step 1: The Odds API ---
-    url = f"https://api.the-odds-api.com/v4/sports/soccer_epl/odds/?apiKey={THE_ODDS_KEY}&regions=uk&markets=h2h,spreads"
-    try:
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            for match in data:
-                home_api = match.get("home_team", "").lower().replace(" ", "")
-                away_api = match.get("away_team", "").lower().replace(" ", "")
-                home_fix = fixture["home"].lower().replace(" ", "")
-                away_fix = fixture["away"].lower().replace(" ", "")
-                if home_fix in home_api and away_fix in away_api:
-                    return match
-    except:
-        pass
-
-    # --- Step 2: Fallback to API-Football ---
-    headers = {"x-apisports-key": API_FOOTBALL_KEY}
-    url2 = f"https://v3.football.api-sports.io/odds?fixture={fixture['id']}&league={league_id}&season=2025"
-    try:
-        r2 = requests.get(url2, headers=headers, timeout=10)
-        if r2.status_code == 200:
-            data2 = r2.json().get("response", [])
-            if data2:
-                return data2[0]  # 返回 API-Football 的 odds 資料
-    except:
-        pass
-
-    return {}  # 都抓不到就回傳空 dict
 
 # ===== Streamlit UI =====
 st.set_page_config(layout="wide")
-st.title("⚽ Mario Gambling Prediction")
+st.title("⚽ Mario Gambling Prediction (API-Football only)")
 
 # ===== 左側聯賽選擇 =====
 leagues = get_leagues()
@@ -128,18 +92,15 @@ with st.sidebar:
     league_name = st.selectbox("Select League", list(leagues.keys()))
 league_id = leagues[league_name]
 
-# ===== 中間比賽列表 =====
+# ===== 右側比賽卡片 =====
 fixtures = get_fixtures(league_id)
 fixtures_sorted = sorted(fixtures, key=lambda x: x["date"])
 
-st.markdown(f"### {league_name} Upcoming Matches")
 for f in fixtures_sorted:
-    st.markdown(f"**{f['home']} vs {f['away']}** ({f['date'][:10]})")
-    
     home_id = get_team_id(f["home"], league_id)
     away_id = get_team_id(f["away"], league_id)
     
-    # ===== 主客隊近期進球平均 (安全檢查) =====
+    # 主客隊平均進球
     home_matches = get_last_matches(home_id) if home_id else []
     away_matches = get_last_matches(away_id) if away_id else []
     
@@ -149,37 +110,20 @@ for f in fixtures_sorted:
     home_avg_goal = sum(home_goals)/len(home_goals) if home_goals else 1.5
     away_avg_goal = sum(away_goals)/len(away_goals) if away_goals else 1.2
     
-    # ===== 比分預測 + Emoji 趨勢 =====
+    # 預測比分
     top_scores = predict_score(home_avg_goal, away_avg_goal)
     score_text = " ".join([f"{'🔥' if s[1]>0.15 else '❌'}{s[0][0]}-{s[0][1]}" for s in top_scores])
+    
+    # 角球預測
+    home_avg_c, away_avg_c, total_c, over_ind = predict_corners(home_id, away_id)
+    
+    # 大小球預測
+    total_goals_avg = home_avg_goal + away_avg_goal
+    over_under_indicator = "🔥" if total_goals_avg > 2.5 else "❌"
+    
+    # ===== 卡片顯示 =====
+    st.markdown(f"### {f['home']} vs {f['away']} ({f['date'][:10]})")
     st.markdown(f"⚽ Predicted Score: {score_text}")
-    
-    # ===== 角球預測 + Emoji =====
-    home_avg_c, away_avg_c, total_c, over_ind = predict_corners_auto(home_id, away_id)
     st.markdown(f"🥅 Corners: {home_avg_c:.1f}+{away_avg_c:.1f}={total_c:.1f} ({over_ind} Over)")
-    
-    # ===== 讓球 & 獨贏盤趨勢 + Emoji =====
-    odds_data = get_odds(f, league_id)
-    if odds_data:
-        # 安全檢查 The Odds API
-        if "bookmakers" in odds_data:
-            for bookmaker in odds_data.get("bookmakers", []):
-                title = bookmaker.get("title", "Unknown")
-                st.markdown(f"🏷️ **{title}**")
-                for market in bookmaker.get("markets", []):
-                    if market["key"]=="h2h":
-                        outcomes = market.get("outcomes", [])
-                        odds_text = " ".join([f"{'🔥' if o['price']<2 else '❌'}{o['name']}:{o['price']}" for o in outcomes])
-                        st.markdown(f"Moneyline: {odds_text}")
-                    elif market["key"]=="spreads":
-                        outcomes = market.get("outcomes", [])
-                        spreads_text = " ".join([f"{o['name']}:{o['point']} ({o['price']})" for o in outcomes])
-                        st.markdown(f"Spread: {spreads_text}")
-        # API-Football fallback
-        else:
-            st.markdown("🏷️ Odds (API-Football fallback)")
-            st.write(odds_data)
-    else:
-        st.warning("⚠️ Unable to fetch odds")
-    
+    st.markdown(f"🔢 Total Goals: {total_goals_avg:.2f} ({over_under_indicator} Over 2.5)")
     st.markdown("---")
