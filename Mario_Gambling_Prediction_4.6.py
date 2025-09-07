@@ -14,7 +14,7 @@ def poisson(k, lam):
     return (lam**k * exp(-lam)) / factorial(k)
 
 # =========================
-# 抓取可用聯賽列表
+# 抓取可用聯賽列表 (防呆 & 排序)
 # =========================
 @st.cache_data
 def get_leagues():
@@ -24,17 +24,21 @@ def get_leagues():
     leagues = []
     if r.status_code == 200:
         for item in r.json().get("response", []):
-            league = item["league"]
-            country = league["country"]
-            name = league["name"]
-            season = item.get("seasons", [{}])[-1].get("year")
+            league = item.get("league", {})
+            country = league.get("country", "Unknown")  # 防呆
+            name = league.get("name", "Unknown League")
+            seasons = item.get("seasons", [])
+            season = seasons[-1].get("year") if seasons else None
             if season:
                 leagues.append({
-                    "id": league["id"],
+                    "id": league.get("id"),
                     "name": name,
                     "country": country,
                     "season": season
                 })
+    # 排序：熱門聯賽靠前 (可自行調整)
+    popular_leagues = ["Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1"]
+    leagues.sort(key=lambda x: (0 if x["name"] in popular_leagues else 1, x["name"]))
     return leagues
 
 # =========================
@@ -73,7 +77,7 @@ def get_team_recent_fixtures(team_name, last_n=5):
                 goals.append(goals_home)
             else:
                 goals.append(goals_away)
-            # 角球數據
+            # 角球數據（若缺省設 5）
             statistics = item.get("statistics", [])
             corner_value = 5
             for stat in statistics:
@@ -124,7 +128,7 @@ selected_league = st.sidebar.selectbox("Leagues", league_names)
 league_id = leagues[league_names.index(selected_league)]["id"]
 
 # =========================
-# 顯示比賽
+# 顯示比賽列表
 # =========================
 fixtures = get_fixtures(league_id)
 fixtures = sorted(fixtures, key=lambda x: x["date"])  # 按日期排列
