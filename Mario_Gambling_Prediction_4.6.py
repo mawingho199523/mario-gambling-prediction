@@ -1,144 +1,107 @@
 import streamlit as st
 import requests
-from datetime import datetime
 import math
 
-st.set_page_config(page_title="Mario Gambling Prediction", layout="wide")
-
-# ====== API Keys ======
+# ===== API Keys =====
 API_FOOTBALL_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
-THE_ODDS_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
+THE_ODDS_KEY = "d00b3f188b2a475a2feaf90da0be67a5"
 
-# ====== Poisson function ======
-def poisson(lam, k):
-    return math.exp(-lam) * (lam ** k) / math.factorial(k)
+# ===== Helper functions =====
 
-# ====== League Mapping (league_id for API-Football) ======
-LEAGUE_MAPPING = {
-    "Premier League": 39,
-    "La Liga": 140,
-    "Serie A": 135,
-    "Bundesliga": 78,
-    "Ligue 1": 61,
-    "J1 League": 1020,
-    "J2 League": 1021,
-    "Eredivisie": 88,
-    "Eerste Divisie": 89,
-    "Championship": 40,
-    "League One": 41,
-    "League Two": 42,
-    "MLS": 253,
-    "Argentine Primera": 128,
-    "Liga MX": 262
-}
-
-# ====== Fetch teams for a league ======
-def get_teams(league_id):
-    url = f"https://v3.football.api-sports.io/teams?league={league_id}&season=2025"
-    headers = {"x-apisports-key": API_FOOTBALL_KEY}
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
-        return {}
-    data = r.json()
-    teams = {t["team"]["name"]: t["team"]["id"] for t in data.get("response", [])}
-    return teams
-
-# ====== Fetch last 5 matches stats ======
-def get_team_stats(team_id, league_id):
+def get_team_avg_corners(team_id, league_id):
     headers = {"x-apisports-key": API_FOOTBALL_KEY}
     url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&league={league_id}&season=2025&last=5"
     r = requests.get(url, headers=headers)
+    avg_corners = []
     if r.status_code != 200:
-        return 1.5, 5
+        return 5  # fallback
+
+    matches = r.json().get("response", [])
+    for match in matches:
+        fixture_id = match['fixture']['id']
+        stats_url = f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fixture_id}"
+        stats_r = requests.get(stats_url, headers=headers)
+        if stats_r.status_code == 200:
+            stats_data = stats_r.json().get("response", [])
+            for s in stats_data:
+                if s["team"]["id"] == team_id:
+                    for stat in s["statistics"]:
+                        if stat["type"] == "Corner Kicks":
+                            avg_corners.append(stat["value"])
+    return sum(avg_corners)/len(avg_corners) if avg_corners else 5
+
+def get_corner_odds(home, away):
+    url = f"https://api.the-odds-api.com/v4/sports/soccer_epl/odds/?apiKey={THE_ODDS_KEY}&regions=uk&markets=totals"
+    r = requests.get(url)
+    if r.status_code != 200:
+        return 9.5  # fallback
     data = r.json()
-    goals, corners = [], []
-    for match in data.get("response", []):
-        is_home = match["teams"]["home"]["id"] == team_id
-        goals.append(match["goals"]["home"] if is_home else match["goals"]["away"])
-        corners.append(5)  # fallback, can parse statistics if available
-    avg_goals = sum(goals)/len(goals) if goals else 1.5
-    avg_corners = sum(corners)/len(corners) if corners else 5
-    return avg_goals, avg_corners
+    for match in data:
+        if home in match.get("home_team","") and away in match.get("away_team",""):
+            for bookmaker in match.get("bookmakers", []):
+                for market in bookmaker.get("markets", []):
+                    if market["key"]=="totals":
+                        for outcome in market["outcomes"]:
+                            if outcome["name"]=="Over":
+                                return float(outcome["point"])
+    return 9.5
 
-# ====== Score prediction ======
-def predict_score(home_avg, away_avg):
-    score_probs = {}
-    for h in range(0,5):
-        for a in range(0,5):
-            score_probs[(h,a)] = poisson(home_avg,h)*poisson(away_avg,a)
-    top_scores = sorted(score_probs.items(), key=lambda x:x[1], reverse=True)[:3]
-    over25 = sum(p for (h,a),p in score_probs.items() if h+a>2.5)
-    under25 = 1-over25
-    return top_scores, over25, under25
+def poisson_prob(lam, k):
+    return math.exp(-lam) * (lam**k) / math.factorial(k)
 
-# ====== Corner prediction ======
-def predict_corners(home_corners, away_corners):
-    total = home_corners + away_corners
-    over_9_5 = total > 9.5
-    return home_corners, away_corners, total, over_9_5
+def predict_score(home_avg_goal, away_avg_goal, max_goals=5):
+    table = []
+    for h in range(max_goals+1):
+        for a in range(max_goals+1):
+            prob = poisson_prob(home_avg_goal, h) * poisson_prob(away_avg_goal, a)
+            table.append(((h,a), prob))
+    table.sort(key=lambda x: x[1], reverse=True)
+    return table[:5]  # top 5 most probable scores
 
-# ====== Handicap suggestion ======
-def handicap_suggestion(home_avg, away_avg, handicap=0.5):
-    if home_avg - handicap > away_avg:
-        return "🏆 Home can win handicap"
-    else:
-        return "⚠️ Home might lose handicap"
+def predict_final_corners(home_id, away_id, league_id, home_name, away_name):
+    home_avg = get_team_avg_corners(home_id, league_id)
+    away_avg = get_team_avg_corners(away_id, league_id)
+    total_avg = home_avg + away_avg
 
-# ====== Streamlit UI ======
-st.title("⚽ Mario Gambling Prediction (English Version)")
+    # 莊家角球大小盤
+    odds_total = get_corner_odds(home_name, away_name)
 
-selected_leagues = st.sidebar.multiselect("Select Leagues", list(LEAGUE_MAPPING.keys()))
+    over_indicator = "🔥" if total_avg > odds_total else "❌"
+    return home_avg, away_avg, total_avg, odds_total, over_indicator
 
-if not selected_leagues:
-    st.info("Please select at least one league")
-else:
-    for league_name in selected_leagues:
-        league_id = LEAGUE_MAPPING.get(league_name)
-        if not league_id:
-            st.warning(f"⚠️ Cannot find league ID for {league_name}")
-            continue
+# ===== Streamlit UI =====
 
-        st.subheader(league_name)
-        teams = get_teams(league_id)
-        if not teams:
-            st.warning("⚠️ Cannot fetch team list")
-            continue
+st.title("⚽ Mario Gambling Prediction")
+st.markdown("### 比分 + 角球預測 (結合球隊歷史 + 莊家盤)")
 
-        # Fetch next 10 fixtures
-        url = f"https://v3.football.api-sports.io/fixtures?league={league_id}&season=2025&next=10"
-        headers = {"x-apisports-key": API_FOOTBALL_KEY}
-        r = requests.get(url, headers=headers)
-        matches = r.json().get("response", [])
-        if not matches:
-            st.warning("⚠️ Cannot fetch fixtures")
-            continue
+# ===== Example selection =====
+# 可以改成自動抓聯賽 + 球隊
+leagues = {"Premier League":39, "La Liga":140, "Serie A":135}  
+league_name = st.selectbox("選擇聯賽", list(leagues.keys()))
+league_id = leagues[league_name]
 
-        for match in matches:
-            home = match["teams"]["home"]["name"]
-            away = match["teams"]["away"]["name"]
-            match_time = datetime.fromisoformat(match['fixture']['date'].replace('Z',''))
-            st.markdown(f"### {match_time.strftime('%Y-%m-%d %H:%M')} - {home} 🆚 {away}")
+# 假設球隊 ID 與名稱（可用 API-Football 抓取）
+teams = {
+    "Manchester City":33,
+    "Manchester United":34,
+    "Arsenal":42,
+    "Liverpool":40
+}
+home_team_name = st.selectbox("主隊", list(teams.keys()))
+away_team_name = st.selectbox("客隊", [t for t in teams.keys() if t != home_team_name])
+home_id = teams[home_team_name]
+away_id = teams[away_team_name]
 
-            home_id = teams.get(home)
-            away_id = teams.get(away)
-            if not home_id or not away_id:
-                st.warning(f"⚠️ Cannot find team ID for {home} or {away}")
-                continue
+st.markdown("### ⚽ 比分預測")
+home_avg_goal, away_avg_goal = 1.5, 1.2  # 假設值，可抓歷史平均進球
+top_scores = predict_score(home_avg_goal, away_avg_goal)
 
-            home_avg, home_corners = get_team_stats(home_id, league_id)
-            away_avg, away_corners = get_team_stats(away_id, league_id)
+for score, prob in top_scores:
+    st.write(f"{home_team_name} {score[0]} - {score[1]} {away_team_name} ({prob*100:.1f}%)")
 
-            top_scores, over25, under25 = predict_score(home_avg, away_avg)
-            st.markdown("**🔝 Top 3 score predictions:**")
-            for (h,a), p in top_scores:
-                st.write(f"⚽ {home} {h}-{a} {away} ({p*100:.1f}%)")
-
-            st.write(f"📈 Over 2.5: {'🔥' if over25>0.5 else '❌'} {over25*100:.1f}%")
-            st.write(f"📉 Under 2.5: {'✅' if under25>0.5 else '❌'} {under25*100:.1f}%")
-
-            h_c, a_c, total_c, over_c = predict_corners(home_corners, away_corners)
-            st.write(f"🥅 Corners: {home} {h_c:.1f} | {away} {a_c:.1f} | Total: {total_c:.1f}")
-            st.write(f"Over 9.5 Corners: {'🔥' if over_c else '❌'}")
-
-            st.write(handicap_suggestion(home_avg, away_avg))
-            st.markdown("---")
+st.markdown("### 🥅 角球預測")
+home_c, away_c, total_c, odds_total, over_ind = predict_final_corners(
+    home_id, away_id, league_id, home_team_name, away_team_name
+)
+st.write(f"主隊角球: {home_c:.1f} | 客隊角球: {away_c:.1f} | 總計: {total_c:.1f}")
+st.write(f"莊家盤: {odds_total} | Over 9.5 角球: {over_ind}")
