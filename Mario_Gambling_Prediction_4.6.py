@@ -5,7 +5,7 @@ import math
 API_FOOTBALL_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
 
 # ===== 熱門聯賽 =====
-hot_leagues = ["English Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1"]
+HOT_LEAGUE_NAMES = ["Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1"]
 
 # ===== Helper functions =====
 def get_leagues():
@@ -15,12 +15,15 @@ def get_leagues():
     leagues = {}
     if r.status_code == 200:
         for item in r.json().get("response", []):
-            leagues[item["league"]["name"]] = item["league"]["id"]
+            league_name = item["league"]["name"]
+            leagues[league_name] = item["league"]["id"]
     return leagues
 
 def sort_leagues_by_popularity(leagues_dict):
-    sorted_leagues = sorted(leagues_dict.items(),
-                            key=lambda x: (0 if x[0] in hot_leagues else 1, x[0]))
+    sorted_leagues = sorted(
+        leagues_dict.items(),
+        key=lambda x: (0 if x[0] in HOT_LEAGUE_NAMES else 1, x[0])
+    )
     return dict(sorted_leagues)
 
 def get_fixtures(league_id):
@@ -39,7 +42,6 @@ def get_fixtures(league_id):
     return fixtures
 
 def get_team_stats(team_name):
-    """使用 API-Football 獲取最近 5 場進球和角球平均數"""
     headers = {"x-apisports-key": API_FOOTBALL_KEY}
     search_url = f"https://v3.football.api-sports.io/teams?search={team_name}"
     r = requests.get(search_url, headers=headers)
@@ -83,12 +85,16 @@ st.title("⚽ Mario Gambling Prediction (Vertical Fast View)")
 
 # ===== 左側聯賽選擇 =====
 leagues = get_leagues()
+if not leagues:
+    st.error("⚠️ Unable to fetch leagues from API-Football.")
+    st.stop()
+
 leagues_sorted = sort_leagues_by_popularity(leagues)
 with st.sidebar:
     league_name = st.selectbox("Select League", list(leagues_sorted.keys()))
 league_id = leagues_sorted[league_name]
 
-# ===== 右側比賽快覽表 =====
+# ===== 中央比賽快覽表 =====
 fixtures = get_fixtures(league_id)
 fixtures_sorted = sorted(fixtures, key=lambda x: x["date"])
 
@@ -98,14 +104,16 @@ for f in fixtures_sorted:
     home_stats = get_team_stats(f["home"])
     away_stats = get_team_stats(f["away"])
     
+    # 比分預測
     top_scores = predict_score(home_stats["avg_goal"], away_stats["avg_goal"])
-    # 每行顯示一個預測比分
     for (h, a), _ in top_scores:
         st.markdown(f"⚽ Predicted Score: {h}-{a} 🔥")
     
+    # 角球預測
     total_corners = home_stats["avg_corner"] + away_stats["avg_corner"]
     st.markdown(f"🥅 Predicted Corners: Home {home_stats['avg_corner']:.1f} + Away {away_stats['avg_corner']:.1f} = {total_corners:.1f} 🔥 Over")
     
+    # 總進球 Over/Under
     total_goals = home_stats["avg_goal"] + away_stats["avg_goal"]
     goals_emoji = "🔥 Over 2.5" if total_goals > 2.5 else "❌ Under 2.5"
     st.markdown(f"🔢 Total Goals Prediction: {total_goals:.1f} {goals_emoji}")
