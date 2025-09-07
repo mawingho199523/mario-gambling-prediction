@@ -71,7 +71,7 @@ def get_average_corners(team_id):
         for match in r.json().get("response", []):
             stats = match.get("statistics", [])
             for s in stats:
-                if s.get("type")=="Corners":
+                if s.get("type")=="Corners" and isinstance(s.get("value",0),(int,float)):
                     total_corners += s.get("value",0)
                     count +=1
     avg_corners = total_corners/count if count>0 else 4
@@ -116,12 +116,12 @@ for f in fixtures_sorted:
     home_id = get_team_id(f["home"], league_id)
     away_id = get_team_id(f["away"], league_id)
     
-    # ===== 主客隊近期進球平均 =====
+    # ===== 主客隊近期進球平均 (安全檢查) =====
     home_matches = get_last_matches(home_id) if home_id else []
     away_matches = get_last_matches(away_id) if away_id else []
     
-    home_goals = [m["goals"]["home"] for m in home_matches if "goals" in m]
-    away_goals = [m["goals"]["away"] for m in away_matches if "goals" in m]
+    home_goals = [m["goals"]["home"] for m in home_matches if "goals" in m and isinstance(m["goals"]["home"], (int,float))]
+    away_goals = [m["goals"]["away"] for m in away_matches if "goals" in m and isinstance(m["goals"]["away"], (int,float))]
     
     home_avg_goal = sum(home_goals)/len(home_goals) if home_goals else 1.5
     away_avg_goal = sum(away_goals)/len(away_goals) if away_goals else 1.2
