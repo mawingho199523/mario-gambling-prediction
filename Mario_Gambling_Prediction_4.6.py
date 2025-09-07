@@ -1,117 +1,160 @@
-# Mario Gambling Prediction Version 6.1
 import streamlit as st
 import requests
 import math
-import numpy as np
+import random
+from datetime import datetime
 
-API_FOOTBALL_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
+API_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
 BASE_URL = "https://v3.football.api-sports.io"
 
-HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
+HEADERS = {"x-apisports-key": API_KEY}
 
-st.title("⚽ Mario Gambling Prediction v6.1")
-
-# -------------------------
-# Helper Functions
-# -------------------------
-
-@st.cache_data
-def get_leagues():
-    url = f"{BASE_URL}/leagues"
-    res = requests.get(url, headers=HEADERS)
-    data = res.json()
-    leagues = []
-    for item in data.get('response', []):
-        league = item.get('league')
-        if league:
-            leagues.append({
-                "id": league["id"],
-                "name": league["name"],
-                "country": league.get("country", "")
-            })
-    return leagues
-
-@st.cache_data
-def get_fixtures(league_id):
-    url = f"{BASE_URL}/fixtures?league={league_id}&season=2025&next=10"
-    res = requests.get(url, headers=HEADERS)
-    data = res.json()
-    fixtures = []
-    for f in data.get('response', []):
-        fixture = f.get('fixture')
-        teams = f.get('teams')
-        if fixture and teams:
-            fixtures.append({
-                "date": fixture.get("date"),
-                "home": teams["home"]["name"],
-                "home_id": teams["home"]["id"],
-                "away": teams["away"]["name"],
-                "away_id": teams["away"]["id"]
-            })
-    fixtures.sort(key=lambda x: x["date"])
-    return fixtures
-
+# -------------------- 防呆獲取球隊近期統計 --------------------
 @st.cache_data
 def get_team_stats(team_id):
-    # 取得近期比賽數據
     url = f"{BASE_URL}/teams/statistics?season=2025&team={team_id}"
     res = requests.get(url, headers=HEADERS)
-    stats = res.json().get('response', {})
-    
-    # 平均進球數
-    goals = [m['goals']['for']['total'] for m in stats.get('fixtures', {}).get('played', {}).get('home', [])] if stats.get('fixtures', {}).get('played', {}).get('home') else [1.5]
-    avg_goal = sum(goals)/len(goals) if goals else 1.5
-    
-    # 平均角球數
-    corners = [m['corners']['for']['total'] for m in stats.get('fixtures', {}).get('played', {}).get('home', [])] if stats.get('fixtures', {}).get('played', {}).get('home') else [5]
-    avg_corner = sum(corners)/len(corners) if corners else 5
-    
+    try:
+        stats = res.json().get('response', {})
+    except:
+        stats = {}
+
+    home_recent = stats.get('fixtures', {}).get('played', {}).get('home')
+    away_recent = stats.get('fixtures', {}).get('played', {}).get('away')
+
+    # 平均進球
+    goals_home = [m.get('goals', {}).get('for', {}).get('total', 1.5) for m in home_recent] if home_recent else [1.5]
+    goals_away = [m.get('goals', {}).get('for', {}).get('total', 1.5) for m in away_recent] if away_recent else [1.5]
+    avg_goal = (sum(goals_home) + sum(goals_away)) / (len(goals_home) + len(goals_away))
+
+    # 平均角球
+    corners_home = [m.get('corners', {}).get('for', {}).get('total', 5) for m in home_recent] if home_recent else [5]
+    corners_away = [m.get('corners', {}).get('for', {}).get('total', 5) for m in away_recent] if away_recent else [5]
+    avg_corner = (sum(corners_home) + sum(corners_away)) / (len(corners_home) + len(corners_away))
+
     return avg_goal, avg_corner
 
-def poisson_score(home_avg, away_avg):
+# -------------------- H2H 近期對賽 --------------------
+@st.cache_data
+def get_h2h(home_id, away_id):
+    url = f"{BASE_URL}/fixtures/headtohead?h2h={home_id}-{away_id}"
+    res = requests.get(url, headers=HEADERS)
+    try:
+        matches = res.json().get('response', [])
+    except:
+        matches = []
+
+    home_goals = []
+    away_goals = []
+    for m in matches:
+        home_goals.append(m.get('goals', {}).get('home', 1))
+        away_goals.append(m.get('goals', {}).get('away', 1))
+
+    if home_goals and away_goals:
+        avg_home = sum(home_goals)/len(home_goals)
+        avg_away = sum(away_goals)/len(away_goals)
+    else:
+        avg_home, avg_away = 1.5, 1.5
+
+    return avg_home, avg_away
+
+# -------------------- Poisson 隨機比分 --------------------
+def poisson_score(avg_home, avg_away):
     max_goals = 5
-    prob_matrix = np.zeros((max_goals+1, max_goals+1))
+    scores = []
     for i in range(max_goals+1):
         for j in range(max_goals+1):
-            prob_matrix[i,j] = (math.exp(-home_avg)*home_avg**i/math.factorial(i)) * \
-                               (math.exp(-away_avg)*away_avg**j/math.factorial(j))
-    i,j = np.unravel_index(prob_matrix.argmax(), prob_matrix.shape)
-    return f"{i}-{j}"
+            prob = (math.exp(-avg_home) * (avg_home**i)/math.factorial(i)) * \
+                   (math.exp(-avg_away) * (avg_away**j)/math.factorial(j))
+            scores.append(((i,j), prob))
+    scores.sort(key=lambda x: x[1], reverse=True)
+    top_scores = scores[:3]  # 前3高概率
+    return random.choice(top_scores)[0]
 
-def predict_corners(home_avg_corner, away_avg_corner):
-    home_corner = np.random.poisson(home_avg_corner)
-    away_corner = np.random.poisson(away_avg_corner)
-    return f"{home_corner}-{away_corner}"
+# -------------------- Over/Under 2.5 --------------------
+def over_under(avg_home, avg_away):
+    total_avg = avg_home + avg_away
+    over_prob = min(0.95, max(0.05, total_avg/3))  # 防呆
+    under_prob = 1 - over_prob
+    return over_prob, under_prob
 
-# -------------------------
-# Streamlit Interface
-# -------------------------
+# -------------------- 勝負趨勢 emoji --------------------
+def trend_emoji(home, away):
+    outcome = random.choices(['🏆', '🤝', '💀'], weights=[0.45,0.25,0.3])[0]
+    return outcome
+
+# -------------------- 抓取聯賽 --------------------
+@st.cache_data
+def get_leagues():
+    url = f"{BASE_URL}/leagues?season=2025"
+    res = requests.get(url, headers=HEADERS)
+    try:
+        leagues = res.json().get('response', [])
+    except:
+        leagues = []
+    league_list = []
+    for item in leagues:
+        league = item.get('league', {})
+        if league.get('id') and league.get('name'):
+            league_list.append({'id': league['id'], 'name': league['name']})
+    return league_list
+
+# -------------------- 抓取比賽 --------------------
+@st.cache_data
+def get_fixtures(league_id):
+    url = f"{BASE_URL}/fixtures?season=2025&league={league_id}"
+    res = requests.get(url, headers=HEADERS)
+    try:
+        matches = res.json().get('response', [])
+    except:
+        matches = []
+    fixtures = []
+    for f in matches:
+        fixture = {
+            'home_id': f['teams']['home']['id'],
+            'home': f['teams']['home']['name'],
+            'away_id': f['teams']['away']['id'],
+            'away': f['teams']['away']['name'],
+            'date': f['fixture']['date']
+        }
+        fixtures.append(fixture)
+    fixtures.sort(key=lambda x: x['date'])
+    return fixtures
+
+# -------------------- Streamlit 顯示 --------------------
+st.title("Mario Gambling Prediction Version 6.2")
+
 leagues = get_leagues()
 league_names = [l['name'] for l in leagues]
 
 selected_league_name = st.sidebar.selectbox("Select League", league_names)
-selected_league = next((l for l in leagues if l['name'] == selected_league_name), None)
+selected_league = next(l for l in leagues if l['name']==selected_league_name)
 
-if selected_league:
-    fixtures = get_fixtures(selected_league['id'])
-    
-    for f in fixtures:
-        st.markdown(f"### 🗓️ {f['date'][:10]}: {f['home']} vs {f['away']}")
-        
-        home_avg_goal, home_avg_corner = get_team_stats(f['home_id'])
-        away_avg_goal, away_avg_corner = get_team_stats(f['away_id'])
-        
-        # 可加入 H2H 加權
-        home_goal = 0.6*home_avg_goal + 0.1
-        away_goal = 0.6*away_avg_goal + 0.1
-        home_corner = 0.6*home_avg_corner + 1
-        away_corner = 0.6*away_avg_corner + 1
-        
-        score_pred = poisson_score(home_goal, away_goal)
-        corner_pred = predict_corners(home_corner, away_corner)
-        
-        # 顯示 Emoji 趨勢
-        emoji_score = "🏆" if int(score_pred.split('-')[0]) > int(score_pred.split('-')[1]) else ("🤝" if score_pred.split('-')[0]==score_pred.split('-')[1] else "💔")
-        
-        st.markdown(f"⚽ Predicted Score: {score_pred} {emoji_score}")
-        st.markdown(f"🥅 Predicted Corners: {corner_pred}")
+fixtures = get_fixtures(selected_league['id'])
+
+for f in fixtures:
+    home_avg_goal, home_avg_corner = get_team_stats(f['home_id'])
+    away_avg_goal, away_avg_corner = get_team_stats(f['away_id'])
+    h2h_home, h2h_away = get_h2h(f['home_id'], f['away_id'])
+
+    avg_home = (home_avg_goal + h2h_home)/2
+    avg_away = (away_avg_goal + h2h_away)/2
+
+    # 比分
+    score_pred = poisson_score(avg_home, avg_away)
+
+    # 角球
+    corner_pred = int((home_avg_corner + away_avg_corner)/2 + random.choice([-1,0,1]))
+
+    # 大小球
+    over_prob, under_prob = over_under(avg_home, avg_away)
+    ou_emoji = "⚡Over" if over_prob>under_prob else "🛡️Under"
+
+    # 勝負趨勢
+    trend = trend_emoji(f['home'], f['away'])
+
+    st.markdown(f"### {f['home']} vs {f['away']} ({f['date'][:10]})")
+    st.markdown(f"⚽ Predicted Score: {score_pred[0]} - {score_pred[1]}")
+    st.markdown(f"🥅 Predicted Corners: {corner_pred}")
+    st.markdown(f"📊 Over/Under 2.5: {ou_emoji}")
+    st.markdown(f"🎯 Trend: {trend}")
