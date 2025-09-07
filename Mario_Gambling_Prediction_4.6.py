@@ -161,17 +161,24 @@ for f in fixtures_sorted:
     # ===== 讓球 & 獨贏盤趨勢 + Emoji =====
     odds_data = get_odds(f, league_id)
     if odds_data:
-        for bookmaker in odds_data.get("bookmakers", []):
-            st.markdown(f"🏷️ **{bookmaker['title']}**")
-            for market in bookmaker.get("markets", []):
-                if market["key"]=="h2h":
-                    outcomes = market.get("outcomes", [])
-                    odds_text = " ".join([f"{'🔥' if o['price']<2 else '❌'}{o['name']}:{o['price']}" for o in outcomes])
-                    st.markdown(f"Moneyline: {odds_text}")
-                elif market["key"]=="spreads":
-                    outcomes = market.get("outcomes", [])
-                    spreads_text = " ".join([f"{o['name']}:{o['point']} ({o['price']})" for o in outcomes])
-                    st.markdown(f"Spread: {spreads_text}")
+        # 安全檢查 The Odds API
+        if "bookmakers" in odds_data:
+            for bookmaker in odds_data.get("bookmakers", []):
+                title = bookmaker.get("title", "Unknown")
+                st.markdown(f"🏷️ **{title}**")
+                for market in bookmaker.get("markets", []):
+                    if market["key"]=="h2h":
+                        outcomes = market.get("outcomes", [])
+                        odds_text = " ".join([f"{'🔥' if o['price']<2 else '❌'}{o['name']}:{o['price']}" for o in outcomes])
+                        st.markdown(f"Moneyline: {odds_text}")
+                    elif market["key"]=="spreads":
+                        outcomes = market.get("outcomes", [])
+                        spreads_text = " ".join([f"{o['name']}:{o['point']} ({o['price']})" for o in outcomes])
+                        st.markdown(f"Spread: {spreads_text}")
+        # API-Football fallback
+        else:
+            st.markdown("🏷️ Odds (API-Football fallback)")
+            st.write(odds_data)
     else:
         st.warning("⚠️ Unable to fetch odds")
     
