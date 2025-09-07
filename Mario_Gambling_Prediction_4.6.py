@@ -6,12 +6,31 @@ import math
 st.set_page_config(page_title="Mario Gambling Prediction", layout="wide")
 
 # ====== API Keys ======
-THE_ODDS_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
 API_FOOTBALL_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
+THE_ODDS_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
 
 # ====== Poisson 分布 ======
 def poisson(lam, k):
     return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+# ====== 聯賽選擇對應 The Odds API sport_key ======
+SPORT_KEYS = {
+    "英超": "soccer_epl",
+    "西甲": "soccer_spain_la_liga",
+    "意甲": "soccer_italy_serie_a",
+    "德甲": "soccer_germany_bundesliga",
+    "法甲": "soccer_france_ligue_one",
+    "日職": "soccer_japan_j1",
+    "日乙": "soccer_japan_j2",
+    "荷甲": "soccer_netherlands_eredivisie",
+    "荷乙": "soccer_netherlands_eredivisie_2",
+    "英冠": "soccer_england_championship",
+    "英甲": "soccer_england_league_one",
+    "英乙": "soccer_england_league_two",
+    "美職": "soccer_usa_mls",
+    "阿甲": "soccer_argentina_superliga",
+    "墨超": "soccer_mexico_liga_mx"
+}
 
 # ====== API-Football: 聯賽列表 ======
 def get_leagues():
@@ -86,7 +105,7 @@ def handicap_suggestion(home_avg, away_avg, handicap=0.5):
     else:
         return "⚠️ 主隊可能輸讓球盤"
 
-# ====== The Odds API: 比賽與盤口 ======
+# ====== The Odds API: 抓莊家盤口 ======
 def get_odds(sport_key, regions='uk', markets='totals,spreads,h2h'):
     url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
     params = {"apiKey": THE_ODDS_KEY, "regions": regions, "markets": markets}
@@ -97,33 +116,47 @@ def get_odds(sport_key, regions='uk', markets='totals,spreads,h2h'):
     return sorted(data, key=lambda x: datetime.fromisoformat(x['commence_time'].replace('Z','')))
 
 # ====== Streamlit 介面 ======
-st.title("⚽ Mario Gambling Prediction (自動抓取版)")
+st.title("⚽ Mario Gambling Prediction (自動抓取比賽版)")
 
 # 選聯賽
 st.sidebar.header("選擇聯賽")
-leagues = get_leagues()
-league_keys = st.sidebar.multiselect("聯賽", list(leagues.keys()), format_func=lambda x: leagues[x])
+selected_leagues = st.sidebar.multiselect("聯賽", list(SPORT_KEYS.keys()))
 
-if not league_keys:
+if not selected_leagues:
     st.info("請選擇至少一個聯賽")
 else:
-    for league_id in league_keys:
-        st.subheader(leagues[league_id])
+    for league_name in selected_leagues:
+        sport_key = SPORT_KEYS[league_name]
+        st.subheader(league_name)
+
+        # 使用 API-Football 抓 fixtures
+        league_id = None
+        leagues = get_leagues()
+        for k,v in leagues.items():
+            if league_name in v:
+                league_id = k
+                break
+        if not league_id:
+            st.warning("⚠️ 無法匹配聯賽 ID")
+            continue
+
         teams = get_teams(league_id)
         if not teams:
             st.warning("⚠️ 無法抓取球隊列表")
             continue
 
-        # 用 The Odds API 抓取比賽
-        matches = get_odds(f"soccer_{league_id}")
-        if not matches:
+        url = f"https://v3.football.api-sports.io/fixtures?league={league_id}&season=2025&next=10"
+        headers = {"x-apisports-key": API_FOOTBALL_KEY}
+        r = requests.get(url, headers=headers)
+        if r.status_code != 200:
             st.warning("⚠️ 無法抓取比賽")
             continue
+        matches = r.json().get("response", [])
 
-        for match in matches[:20]:
-            home = match["home_team"]
-            away = match["away_team"]
-            match_time = datetime.fromisoformat(match['commence_time'].replace('Z',''))
+        for match in matches:
+            home = match["teams"]["home"]["name"]
+            away = match["teams"]["away"]["name"]
+            match_time = datetime.fromisoformat(match['fixture']['date'].replace('Z',''))
             st.markdown(f"### {match_time.strftime('%Y-%m-%d %H:%M')} - {home} 🆚 {away}")
 
             # 自動匹配 team_id
@@ -156,9 +189,11 @@ else:
             st.write(handicap_suggestion(home_avg, away_avg))
 
             # 多家莊家盤口
-            if match.get("bookmakers"):
+            odds = get_odds(sport_key)
+            match_odds = [m for m in odds if m['home_team']==home and m['away_team']==away]
+            if match_odds:
                 st.markdown("**🎯 多家莊家盤口**")
-                for bm in match["bookmakers"]:
+                for bm in match_odds[0].get("bookmakers", []):
                     st.markdown(f"🏦 {bm['title']}")
                     for market in bm["markets"]:
                         if market["key"] == "h2h":
