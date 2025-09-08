@@ -53,40 +53,17 @@ def get_upcoming_fixtures(league_id, season=2025, next_n=20):
     return matches
 
 # =============================
-# 改良版 get_team_stats (3 層 fallback)
+# 改良版 get_team_stats
 # =============================
 @st.cache_data
 def get_team_stats(team_id, league_id, season=2025):
-    # 第一層：teams/statistics
     url = f"{BASE_URL}/teams/statistics?league={league_id}&season={season}&team={team_id}"
     res = requests.get(url, headers=HEADERS).json()
     stats = res.get("response", {})
     if stats:
         goals = stats.get("goals", {}).get("for", {}).get("average", {}).get("total", "1.5")
-        corners = stats.get("corners", {}).get("for", {}).get("average", "5.0")
-        return float(goals) if goals else 1.5, float(corners) if corners else 5.0
-
-    # 第二層：fixtures last=10
-    url = f"{BASE_URL}/fixtures?team={team_id}&last=10"
-    res = requests.get(url, headers=HEADERS).json()
-    fixtures = res.get("response", [])
-    if fixtures:
-        goals, corners = [], []
-        for f in fixtures:
-            if f.get("goals"):
-                g = f["teams"]["home"]["goals"] + f["teams"]["away"]["goals"]
-                goals.append(g)
-            if f.get("statistics"):
-                try:
-                    c = f["statistics"][0]["statistics"][0]["value"]
-                    corners.append(c)
-                except:
-                    corners.append(5)
-        return (sum(goals)/len(goals) if goals else 1.5,
-                sum(corners)/len(corners) if corners else 5.0)
-
-    # fallback
-    return 1.5, 5.0
+        return float(goals) if goals else 1.5
+    return 1.5  # fallback
 
 # =============================
 # 取得 H2H
@@ -105,9 +82,21 @@ def get_h2h(home_id, away_id, last=5):
     return results
 
 # =============================
+# 信心指數
+# =============================
+def get_confidence(pred_home, pred_away):
+    diff = abs(pred_home - pred_away)
+    if diff >= 2:
+        return "⭐⭐⭐⭐⭐"
+    elif diff == 1:
+        return "⭐⭐⭐"
+    else:
+        return "⭐⭐"
+
+# =============================
 # Streamlit 介面
 # =============================
-st.title("⚽ Mario Gambling Prediction Version 6.3")
+st.title("⚽ Mario Gambling Prediction Version 6.6")
 
 # 聯賽選擇
 leagues = get_leagues()
@@ -125,18 +114,36 @@ for f in fixtures:
     st.markdown(f"📅 {datetime.fromisoformat(f['date']).strftime('%Y-%m-%d %H:%M')}")
 
     # 球隊數據
-    home_avg_goal, home_avg_corner = get_team_stats(f["home_id"], league_id)
-    away_avg_goal, away_avg_corner = get_team_stats(f["away_id"], league_id)
+    home_avg_goal = get_team_stats(f["home_id"], league_id)
+    away_avg_goal = get_team_stats(f["away_id"], league_id)
 
-    # 預測
+    # 預測比分
     pred_home = round(home_avg_goal)
     pred_away = round(away_avg_goal)
-    pred_corners = round((home_avg_corner + away_avg_corner) / 2)
+    total_goals = pred_home + pred_away
+
+    # 大小球建議
+    if total_goals >= 3:
+        ou_suggest = "🔥 大 2.5"
+    else:
+        ou_suggest = "❄️ 細 2.5"
+
+    # 讓球盤建議
+    if pred_home > pred_away:
+        handicap = f"🏆 推介: {f['home']} -0.5"
+    elif pred_home < pred_away:
+        handicap = f"🏆 推介: {f['away']} +0.5"
+    else:
+        handicap = "⚖️ 和局 → 建議避開或買受讓方 +0.5"
+
+    # 信心指數
+    confidence = get_confidence(pred_home, pred_away)
 
     # 顯示
     st.markdown(f"**比分預測**: {f['home']} {pred_home} - {pred_away} {f['away']}")
-    st.markdown(f"**角球預測**: {pred_corners}️⃣")
-    st.markdown(f"**勝負趨勢**: {'🏆 '+f['home'] if pred_home>pred_away else ('🤝 和局' if pred_home==pred_away else '🏆 '+f['away'])}")
+    st.markdown(f"**大小球建議**: {ou_suggest}")
+    st.markdown(f"**讓球盤建議**: {handicap}")
+    st.markdown(f"**信心指數**: {confidence}")
 
     # H2H
     h2h_results = get_h2h(f["home_id"], f["away_id"])
