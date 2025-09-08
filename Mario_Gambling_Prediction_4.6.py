@@ -1,4 +1,4 @@
-# Mario Gambling Prediction Version 6.6 Improved (中文 + Emoji)
+# Mario Gambling Prediction Version 6.6.1 中文 + Emoji + 動態盤口
 import streamlit as st
 import requests
 import random
@@ -8,12 +8,10 @@ import random
 API_FOOTBALL_KEY = "085d2ce7d7e11f743f93f6cf6d5ba7e8"
 API_FOOTBALL_URL = "https://v3.football.api-sports.io"
 
-HEADERS = {
-    "x-apisports-key": API_FOOTBALL_KEY
-}
+HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
 
 # ---------------------------
-# 幫助函數: 抓取聯賽
+# 抓取聯賽
 @st.cache_data
 def get_leagues():
     url = f"{API_FOOTBALL_URL}/leagues"
@@ -22,12 +20,10 @@ def get_leagues():
     leagues = []
     for item in data.get("response", []):
         league_info = item.get("league", {})
-        country_info = league_info.get("country", "未知")
         leagues.append({
             "id": league_info.get("id"),
             "name": league_info.get("name"),
-            "country": country_info,
-            "season": item.get("seasons", [{}])[0].get("year")
+            "country": league_info.get("country", "未知")
         })
     return leagues
 
@@ -42,51 +38,49 @@ def get_fixtures(league_id):
     for f in data.get("response", []):
         fixture = f.get("fixture", {})
         teams = f.get("teams", {})
-        home_team = teams.get("home", {}).get("name")
-        away_team = teams.get("away", {}).get("name")
         fixtures.append({
-            "home": home_team,
-            "away": away_team,
+            "home": teams.get("home", {}).get("name"),
+            "away": teams.get("away", {}).get("name"),
             "date": fixture.get("date")
         })
     return fixtures
 
 # ---------------------------
-# 隨機化比分函數
+# 模擬比分
 def predict_score(avg_home, avg_away):
     home_goals = max(0, int(random.gauss(avg_home, 1)))
     away_goals = max(0, int(random.gauss(avg_away, 1)))
     return home_goals, away_goals
 
 # ---------------------------
-# 大小球建議
-def over_under_prediction(home, away, line=2.5):
+# 動態大小球盤口
+def over_under_prediction(home, away):
     total = home + away
+    # 隨機盤口 2.5 ~ 4.0
+    line = random.choice([2.5, 3, 3.5, 4])
     if total > line:
-        return "大球 ⚽⚽"
+        return f"大球 ⚽⚽ (盤口 {line})"
     elif total < line:
-        return "小球 ⚽"
+        return f"小球 ⚽ (盤口 {line})"
     else:
-        return "平局球 ⚽🤝"
+        return f"平局球 ⚽🤝 (盤口 {line})"
 
 # ---------------------------
-# 讓球盤建議
+# 動態讓球盤口
 def handicap_suggestion(home, away):
     diff = home - away
-    if diff > 1:
-        return "主勝 -1 🏆"
-    elif diff < -1:
-        return "客勝 +1 🏆"
-    elif diff > 0:
-        return "主勝 -0.5 ⚡"
-    elif diff < 0:
-        return "客勝 +0.5 ⚡"
+    # 隨機讓球盤口
+    line = random.choice([-1, -0.5, 0, 0.5, 1])
+    if diff > line:
+        return f"主勝 🏆 (讓球 {line})"
+    elif diff < line:
+        return f"客勝 🏆 (讓球 {line})"
     else:
-        return "平局 0 🤝"
+        return f"平局 🤝 (讓球 {line})"
 
 # ---------------------------
 # Streamlit UI
-st.title("Mario 賭波預測 Version 6.6 中文 + Emoji")
+st.title("Mario 賭波預測 Version 6.6.1 中文 + Emoji + 動態盤口")
 
 leagues = get_leagues()
 league_names = [f"{l['name']} ({l['country']})" for l in leagues]
@@ -103,7 +97,8 @@ for f in fixtures:
     avg_away_goal = random.uniform(0.5, 1.8)
     
     home_goals, away_goals = predict_score(avg_home_goal, avg_away_goal)
-    ou = over_under_prediction(home_goals, away_goals, line=2.5)
+    
+    ou = over_under_prediction(home_goals, away_goals)
     handicap = handicap_suggestion(home_goals, away_goals)
 
     # 勝平負 Emoji
