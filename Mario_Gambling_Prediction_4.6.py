@@ -1,6 +1,4 @@
-# Mario Gambling Prediction Version 6.6 Improved
-# 功能: 使用 API-Football 資料生成比分預測、大小球、讓球盤建議，避免單一比分
-
+# Mario Gambling Prediction Version 6.6 Improved (中文 + Emoji)
 import streamlit as st
 import requests
 import random
@@ -24,7 +22,7 @@ def get_leagues():
     leagues = []
     for item in data.get("response", []):
         league_info = item.get("league", {})
-        country_info = league_info.get("country", "Unknown")
+        country_info = league_info.get("country", "未知")
         leagues.append({
             "id": league_info.get("id"),
             "name": league_info.get("name"),
@@ -56,7 +54,6 @@ def get_fixtures(league_id):
 # ---------------------------
 # 隨機化比分函數
 def predict_score(avg_home, avg_away):
-    # 基於平均進球 + 隨機微調
     home_goals = max(0, int(random.gauss(avg_home, 1)))
     away_goals = max(0, int(random.gauss(avg_away, 1)))
     return home_goals, away_goals
@@ -65,47 +62,60 @@ def predict_score(avg_home, avg_away):
 # 大小球建議
 def over_under_prediction(home, away, line=2.5):
     total = home + away
-    return "Over" if total > line else "Under"
+    if total > line:
+        return "大球 ⚽⚽"
+    elif total < line:
+        return "小球 ⚽"
+    else:
+        return "平局球 ⚽🤝"
 
 # ---------------------------
 # 讓球盤建議
 def handicap_suggestion(home, away):
     diff = home - away
     if diff > 1:
-        return "-1"
+        return "主勝 -1 🏆"
     elif diff < -1:
-        return "+1"
+        return "客勝 +1 🏆"
     elif diff > 0:
-        return "-0.5"
+        return "主勝 -0.5 ⚡"
     elif diff < 0:
-        return "+0.5"
+        return "客勝 +0.5 ⚡"
     else:
-        return "0"
+        return "平局 0 🤝"
 
 # ---------------------------
 # Streamlit UI
-st.title("Mario Gambling Prediction Version 6.6 Improved")
+st.title("Mario 賭波預測 Version 6.6 中文 + Emoji")
 
 leagues = get_leagues()
 league_names = [f"{l['name']} ({l['country']})" for l in leagues]
-selected_league_idx = st.sidebar.selectbox("Select League", range(len(league_names)), format_func=lambda x: league_names[x])
+selected_league_idx = st.sidebar.selectbox("選擇聯賽", range(len(league_names)), format_func=lambda x: league_names[x])
 selected_league = leagues[selected_league_idx]
 
 fixtures = get_fixtures(selected_league["id"])
 
-st.header(f"{selected_league['name']} - Upcoming Fixtures")
+st.header(f"{selected_league['name']} - 即將比賽")
 
 for f in fixtures:
-    # 模擬平均進球數，暫時使用隨機值
+    # 模擬平均進球數
     avg_home_goal = random.uniform(0.8, 2.0)
     avg_away_goal = random.uniform(0.5, 1.8)
     
     home_goals, away_goals = predict_score(avg_home_goal, avg_away_goal)
     ou = over_under_prediction(home_goals, away_goals, line=2.5)
     handicap = handicap_suggestion(home_goals, away_goals)
-    
+
+    # 勝平負 Emoji
+    if home_goals > away_goals:
+        result_emoji = "🏠 主勝"
+    elif home_goals < away_goals:
+        result_emoji = "🛫 客勝"
+    else:
+        result_emoji = "🤝 平局"
+
     st.markdown(f"### {f['home']} vs {f['away']} - {f['date'][:10]}")
-    st.markdown(f"**Predicted Score:** {home_goals} - {away_goals}")
-    st.markdown(f"**Over/Under 2.5:** {ou} ⚽")
-    st.markdown(f"**Handicap Suggestion:** {handicap} 🎯")
+    st.markdown(f"**預測比分:** {home_goals} - {away_goals} {result_emoji}")
+    st.markdown(f"**大小球:** {ou}")
+    st.markdown(f"**讓球盤建議:** {handicap}")
     st.markdown("---")
